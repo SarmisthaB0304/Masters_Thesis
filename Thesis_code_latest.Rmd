@@ -1,0 +1,1140 @@
+---
+title: "Thesis_RMD"
+author: "Sarmistha Bhattacharyya"
+date: "11/02/2024"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+Load required libraries
+
+```{r, warning=FALSE}
+library(dplyr)
+library(cluster)  # For k-means clustering
+library(factoextra)  # For visualization
+library(cluster)
+library(factoextra)
+library(fpc)
+library(mclust)
+library(ORIClust)           
+library(ggplot2)
+library(FNN)
+library(dbscan)
+library(opticskxi)
+library(NbClust)
+library(tidyr)
+
+```
+
+Data Loading and structuring Renaming the columns of the dataset
+properly
+
+```{r, warning=FALSE}
+#Load the data to the R env
+
+load("~/Thesis research/VPA.Gene.Without650.RData")
+
+#rename the dataset
+df <- ev.VPA.without650
+
+#rename the columns of the dataset with concentration_rep# manner 
+colnames(df) <- c("untr_rep1","untr_rep2","untr_rep3","untr_rep4","untr_rep5","untr_rep6","25mM_rep1","25mM_rep2","25mM_rep3","150mM_rep1","150mM_rep2","150mM_rep3","350mM_rep1","350mM_rep2","350mM_rep3","450mM_rep1","450mM_rep2","450mM_rep3","550mM_rep1","550mM_rep2","550mM_rep3","800mM_rep1","800mM_rep2","800mM_rep3","1000mM_rep1","1000mM_rep2","1000mM_rep3")
+
+```
+
+View the dataset
+
+```{r, echo = FALSE}
+ #$$$head(df)
+```
+
+Select top 1000 genes which has the highest variability within different
+samples (or concentration)
+
+```{r, warning=FALSE}
+
+# 1. Calculate the variability for each gene across all concentrations
+gene_variability <- apply(df, 1, var)
+
+# 2. Combine gene names and variability into a data frame
+gene_variability_df <- data.frame(gene = rownames(df), variability = gene_variability)
+
+# 3. Sort the genes based on their variability
+sorted_genes <- gene_variability_df %>% arrange(desc(variability))
+####EXPERIMENT ON BOXPLOT STARTS
+#selected_genes <- sorted_genes[901:1000, ]
+#gene_names_to_select <- selected_genes$gene
+#selected_genes_data <- df[gene_names_to_select, ]
+####EXPERIMENT ON BOXPLOT ENDS
+
+# 4. Select the top 1000 genes with the highest variability
+top_1000_genes <- head(sorted_genes, 1000)
+
+# Now we can use top_1000_genes to select the corresponding rows from your original dataset
+gene_names_to_select <- top_1000_genes$gene
+selected_genes_data <- df[gene_names_to_select, ]
+
+```
+
+creating the dataset where top 1000 most variabled genes are store
+
+```{r, warning=FALSE}
+gene_expression_data <- selected_genes_data[,]
+```
+
+Summary of the dataset
+
+(for each samples)
+
+```{r, warning=FALSE}
+# Compute summary statistics for each column (sample)
+summary_stats <- apply(gene_expression_data, 2, function(x) c(mean(x), median(x), sd(x), min(x), max(x)))
+
+# Set column names to correspond to sample names
+colnames(summary_stats) <- colnames(gene_expression_data)
+
+# Set row names to correspond to the functions that is applied to
+rownames(summary_stats) <- c("Mean","Median","SD","Min","Max")
+
+# View the summary statistics with sample names
+#$$$print(summary_stats)
+
+```
+
+Summary of the dataset
+
+(for each genes)
+
+```{r, warning=FALSE , echo = FALSE}
+
+# Compute summary statistics
+summary_stats <- apply(gene_expression_data, 1, function(x) c(mean(x), median(x), sd(x), min(x), max(x)))
+
+# Set row names to correspond to gene names
+rownames(summary_stats) <- c("Mean","Median","SD","Min","Max")
+
+# View the summary statistics with gene names
+#$$$print(summary_stats)
+
+```
+
+Exploratory Data Analysis (EDA):
+#Boxplot
+
+```{r, warning=FALSE}
+
+# Assuming your dataset is loaded into a dataframe named selected_genes_data
+
+# Convert the matrix to a dataframe
+selected_genes_df <- as.data.frame(selected_genes_data)
+
+# Reshape the dataframe from wide to long format
+df_long <- gather(selected_genes_df, key = "Sample", value = "Expression")
+
+# Define colors for each group of samples
+sample_colors <- c(rep("blue", 6), rep("red", 3), rep("green", 3), rep("orange", 3), rep("purple", 3), rep("yellow", 3), rep("brown", 3), rep("pink", 3))
+
+# Reorder the x-axis labels in the original order
+df_long$Sample <- factor(df_long$Sample, levels = unique(df_long$Sample))
+
+# Plot the data with custom colors and reordered x-axis labels
+ggplot(df_long, aes(x = Sample, y = Expression, fill = Sample)) +
+  geom_boxplot() +
+  scale_fill_manual(values = sample_colors) +
+  labs(title = "Gene Expressions Across Concentrations",
+       x = "Sample", y = "Expression") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Rotate x-axis labels
+
+```
+Matplot for 1000 genes 
+
+```{r}
+concentration_names <- c("untr_rep1","untr_rep2","untr_rep3","untr_rep4","untr_rep5","untr_rep6","25mM_rep1","25mM_rep2","25mM_rep3","150mM_rep1","150mM_rep2","150mM_rep3","350mM_rep1","350mM_rep2","350mM_rep3","450mM_rep1","450mM_rep2","450mM_rep3","550mM_rep1","550mM_rep2","550mM_rep3","800mM_rep1","800mM_rep2","800mM_rep3","1000mM_rep1","1000mM_rep2","1000mM_rep3")
+
+# Assuming your data is stored in a matrix called "gene_data"
+# gene_data should have 1000 rows (genes) and 14 columns (concentrations)
+# Set smaller margins
+par(mar = c(6.5, 3, 1, 7))  # c(bottom, left, top, right)
+# Plot the data using matplot
+matplot(t(gene_expression_data), type = "l", col = rainbow(100), xlab = " ", ylab = "Expression Level",xaxt = "n")
+# Customize x-axis labels
+axis(1, at = seq_along(concentration_names), labels = concentration_names, las = 2)
+
+```
+
+#Heatmap of gene expression data
+
+samples vs. genes it tells which genes have similar pattern in their
+outcomes at which samples
+
+```{r, warning=FALSE}
+
+# Adjust font size and width of the plot
+heatmap(gene_expression_data, scale = "row", cexCol = 0.5, width = 20, main = "Heatmap of Gene Expression")
+
+
+```
+
+#Correlation Matrix and Heatmap of correlation matrix
+
+to check which samples have similar genes behaviour
+
+```{r, warning=FALSE}
+# Compute correlation matrix
+correlation_matrix <- cor(gene_expression_data)
+
+##head(correlation_matrix)
+
+# Visualize correlation matrix as a heatmap
+heatmap(correlation_matrix, main = "Correlation Heatmap", cexCol = 0.5, width = 20, cexRow = 0.5, height = 20)
+
+```
+
+Application of clustering algorithms
+
+#K-means algorithm
+
+-- Step 1: Choosing the optimal value of k based on maximum silhoutte
+coefficients Possible set of k is taken from [2, sqrt(n/2)] where n is
+the number of data which is 1000 in our case.
+
+```{r, warning=FALSE}
+
+# Compute total within-cluster sum of squares (WCSS) for different values of k
+wss <- sapply(2:24, function(k) {
+  kmeans(gene_expression_data, centers = k)$tot.withinss
+})
+
+# Plot the elbow plot
+plot(2:24, wss, type = "b", frame = FALSE, 
+     xlab = "Number of clusters (k)", ylab = "Total within-cluster sum of squares (WCSS)",
+     main = "Elbow Plot for Optimal k")
+# Customize x-axis labels to show integers from 2 to 24
+axis(1, at = 2:24)
+
+```
+
+So elbow is visible for k = 4
+
+Step 2: Identify the optimal k value (that k value which is being
+referred by most of the methods)
+
+```{r, warning=FALSE}
+# Use the elbow point as the optimal value of k
+Result_kM <- NbClust(gene_expression_data, distance = "euclidean", method = "kmeans", min.nc = 2, max.nc = 24, index = "all")
+
+```
+
+Assign optimal k value to a variable from the earlier summary
+
+```{r, warning=FALSE}
+
+#optimal k value
+optimal_kM <- 2
+
+```
+
+Step 4: Perform k means clustering #Using NBClust package
+
+```{r, warning=FALSE}
+
+# Perform k-means clustering with the optimal value of k
+set.seed(1234)  # Set seed for reproducibility
+kmeans_result <- kmeans(gene_expression_data, centers = optimal_kM, nstart = 10,
+       algorithm = c("Hartigan-Wong", "Lloyd", "Forgy",
+                     "MacQueen"), trace = FALSE)
+
+# Get cluster assignments for each gene
+cluster_assignments_kM <- kmeans_result$cluster
+
+# Add cluster assignments to your dataset
+gene_expression_data_with_clusters_kM <- cbind(gene_expression_data, cluster = cluster_assignments_kM)
+
+# Visualize the clustering result
+# If your data has more than 2 dimensions, you can use PCA for visualization
+pca <- prcomp(gene_expression_data)
+fviz_cluster(list(data = pca$x[,1:2], cluster = cluster_assignments_kM), geom = "point", stand = FALSE, palette = "jco", main = "PCA Plot with Clusters")
+
+# Print cluster centers
+#print(kmeans_result$centers)
+# Print the k means cluster result
+#print(kmeans_result$size)
+
+```
+
+MATPLOT FOR K MEANS WITH k = 2
+
+```{r}
+
+# Assuming you have already performed k-means clustering and have cluster assignments stored in cluster_assignments_kM
+
+# Number of clusters
+num_clusters <- max(cluster_assignments_kM)
+
+# Create a new directory to save the plots
+dir.create("cluster_plots")
+
+# Loop through each cluster
+for (i in 1:num_clusters) {
+  # Subset the data for the current cluster
+  cluster_data <- gene_expression_data[cluster_assignments_kM == i, ]
+  
+  # Set smaller margins
+  #par(mar = c(6.5, 3, 1, 5))  # c(bottom, left, top, right)
+  
+  # Plot the data using matplot
+  matplot(t(cluster_data), type = "l", col = rainbow(100), xlab = " ", ylab = "Expression Level", xaxt = "n")
+  
+  # Customize x-axis labels
+  axis(1, at = seq_along(concentration_names), labels = concentration_names, las = 2)
+  
+  # Save the plot
+  plot_filename <- paste0("cluster_plots/cluster_", i, "_matplot.png")
+  dev.copy(png, plot_filename)
+  dev.off()
+}
+
+```
+
+
+
+#By using the k-means from the Elbow plot with k = 4
+
+```{r}
+optimal_kM_elbow <- 4
+```
+
+```{r}
+set.seed(1234)  # Set seed for reproducibility
+kmeans_result_elbow <- kmeans(gene_expression_data, centers = optimal_kM_elbow, nstart = 10)
+
+# Get cluster assignments for each gene
+cluster_assignments_kM_elbow <- kmeans_result_elbow$cluster
+
+# Add cluster assignments to your dataset
+gene_expression_data_with_clusters_kM_elbow <- cbind(gene_expression_data, cluster = cluster_assignments_kM_elbow)
+
+#adding new code
+# Calculate silhouette score
+silhouette_score_elbow <- silhouette(cluster_assignments_kM_elbow, dist(gene_expression_data))
+
+# Print silhouette score
+#print(silhouette_score)
+
+# Combine cluster assignments with silhouette scores
+silhouette_df <- data.frame(Cluster = cluster_assignments_kM_elbow, Silhouette = silhouette_score_elbow[, "sil_width"])
+
+# Calculate average silhouette score for each cluster
+cluster_silhouette_elbow <- silhouette_df %>%
+  group_by(Cluster) %>%
+  summarize(Avg_Silhouette = mean(Silhouette))
+
+# Print average silhouette score for each cluster
+print(cluster_silhouette_elbow)
+
+# Compute silhouette score for each data point
+#silhouette_scores <- silhouette(cluster_assignments_kM, dist(gene_expression_data))
+
+# Calculate total average silhouette score
+total_avg_silhouette_elbow <- mean(silhouette_score_elbow[, "sil_width"])
+
+# Print total average silhouette score
+print(total_avg_silhouette_elbow)
+#end of new code
+# Visualize the clustering result
+# If your data has more than 2 dimensions, you can use PCA for visualization
+pca <- prcomp(gene_expression_data)
+fviz_cluster(list(data = pca$x[,1:2], cluster = cluster_assignments_kM_elbow), geom = "point", stand = FALSE, palette = "jco", main = "PCA Plot with Clusters")
+
+# Print cluster centers
+#print(kmeans_result$centers)
+# Print the k means cluster result
+#print(kmeans_result$size)
+# Calculate the size of each cluster
+cluster_sizes_elbow <- table(cluster_assignments_kM_elbow)
+
+# Print the size of each cluster
+print(cluster_sizes_elbow)
+
+
+```
+
+MATPLOT OF EACH CLUSTERS FOR k = 4
+
+```{r}
+
+# Assuming you have already performed k-means clustering and have cluster assignments stored in cluster_assignments_kM
+
+# Number of clusters
+num_clusters <- max(cluster_assignments_kM_elbow)
+
+# Create a new directory to save the plots
+dir.create("cluster_plots")
+
+# Loop through each cluster
+for (i in 1:num_clusters) {
+  # Subset the data for the current cluster
+  cluster_data <- gene_expression_data[cluster_assignments_kM_elbow == i, ]
+  
+  # Set smaller margins
+  #par(mar = c(6.5, 3, 1, 7))  # c(bottom, left, top, right)
+  
+  # Plot the data using matplot
+  matplot(t(cluster_data), type = "l", col = rainbow(100), xlab = " ", ylab = "Expression Level", xaxt = "n")
+  
+  # Customize x-axis labels
+  axis(1, at = seq_along(concentration_names), labels = concentration_names, las = 2)
+  
+  # Save the plot
+  plot_filename <- paste0("cluster_plots/cluster_", i, "_matplot.png")
+  dev.copy(png, plot_filename)
+  dev.off()
+}
+
+```
+
+Genes assigned on the clusters:
+
+```{r warning=FALSE, echo = FALSE}
+
+# Add cluster assignments to your dataset
+gene_expression_data_with_clusters_kM <- cbind(gene_expression_data, cluster = cluster_assignments_kM)
+
+# Create a data frame with gene names and their corresponding cluster assignments
+gene_cluster_df_kM <- data.frame(Gene = rownames(gene_expression_data), Cluster = cluster_assignments_kM)
+
+# Display gene names for each cluster
+for (i in 1:optimal_kM) {
+  cat("Genes in Cluster", i, ":\n")
+  ####print(gene_cluster_df_kM$Gene[gene_cluster_df_kM$Cluster == i])
+}
+
+#Gene cluster 1  : "225846_at"    "228387_at"    "231899_at"    "205710_at"    "209398_at"   
+# Gene Cluster 2: "210650_s_at"  "228708_at"    "219768_at"    "204949_at"    "229800_at"   
+
+```
+
+Step 5: Performance evaluation. cluster size + Silhoutte coeffiecient of
+the final cluster (for NBClust package)
+
+```{r, warning=FALSE, echo = FALSE}
+
+#size of cluster
+# Assuming nb_clust_result$Best.partition contains the cluster labels
+cluster_labels_kM <- Result_kM$Best.partition
+
+# Count the occurrences of each unique cluster label
+cluster_sizes_kM <- table(cluster_labels_kM)
+
+# Print the cluster sizes
+print(cluster_sizes_kM)
+
+# Extract Silhouette index values
+silhouette_value_kM <- Result_kM$Best.nc["Value_Index", "Silhouette"]
+#print("Silhoutte coefficient is :")
+#silhouette_value_kM
+cat("Silhouette coefficient is:", silhouette_value_kM, "\n")
+
+```
+Hirarchical clustering
+
+--Step 1: Determine the optimal number of clusters using NbClustalue
+
+```{r, warning=FALSE}
+
+nb_clust_result_hc <- NbClust(gene_expression_data, distance = "euclidean", method = "ward.D2", min.nc = 2, max.nc = 24, index = "all")
+
+```
+
+Set the optimal k value to the variable to use it for further analysis
+
+```{r, warning=FALSE}
+optimal_kHC <- 4
+```
+
+--Step 2: Perform hierarchical clustering with the optimal number of
+clusters
+
+```{r, warning=FALSE}
+
+hc <- hclust(dist(gene_expression_data), method = "ward.D2")
+hc_clusters <- cutree(hc, k = optimal_kHC)
+
+```
+
+-- Step 3: Visualize the clustering result
+
+```{r, warning=FALSE, echo = FALSE}
+
+pca <- prcomp(gene_expression_data)
+fviz_cluster(list(data = pca$x[,1:2], cluster = hc_clusters), geom = "point", stand = FALSE, palette = "jco", main = "PCA Plot with Clusters")
+
+```
+
+MATPLOT OF EACH CLUSTERS FOR hirarchical clustering for k = 4
+
+```{r}
+
+# Assuming you have already performed k-means clustering and have cluster assignments stored in cluster_assignments_kM
+
+# Number of clusters
+num_clusters <- max(hc_clusters)
+
+# Create a new directory to save the plots
+dir.create("cluster_plots")
+
+# Loop through each cluster
+for (i in 1:num_clusters) {
+  # Subset the data for the current cluster
+  cluster_data <- gene_expression_data[hc_clusters == i, ]
+  
+  # Set smaller margins
+  #par(mar = c(6.5, 3, 1, 7))  # c(bottom, left, top, right)
+  
+  # Plot the data using matplot
+  matplot(t(cluster_data), type = "l", col = rainbow(100), xlab = " ", ylab = "Expression Level", xaxt = "n")
+  
+  # Customize x-axis labels
+  axis(1, at = seq_along(concentration_names), labels = concentration_names, las = 2)
+  
+  # Save the plot
+  plot_filename <- paste0("cluster_plots/cluster_", i, "_matplot.png")
+  dev.copy(png, plot_filename)
+  dev.off()
+}
+
+```
+
+
+-- Step 4: Print cluster centers (mean expression profiles)
+
+```{r, warning=FALSE}
+
+cluster_centers_HC <- aggregate(gene_expression_data, by = list(cluster = hc_clusters), FUN = mean)
+#print(cluster_centers_HC)
+
+```
+
+--Step 5: Performance evaluation - Silhouette coefficient of the final
+clusters
+
+```{r, warning=FALSE, echo = FALSE}
+#size of cluster
+# Assuming nb_clust_result$Best.partition contains the cluster labels
+cluster_labels_hc <- nb_clust_result_hc$Best.partition
+# Count the occurrences of each unique cluster label
+cluster_sizes_hc <- table(cluster_labels_hc)
+# Print the cluster sizes
+print(cluster_sizes_hc)
+
+silhouette_value_hc <- nb_clust_result_hc$Best.nc["Value_Index", "Silhouette"]
+#silhouette_value_hc
+# Assuming silhouette_value_kM is the variable storing the silhouette coefficient value
+cat("Silhouette coefficient for hirarchical clustering is:", silhouette_value_hc, "\n")
+
+```
+
+Silhoutte score for each clusters separately
+ 
+```{r}
+
+# Calculate silhouette score for each data point
+silhouette_scores_hc <- silhouette(hc_clusters, dist(gene_expression_data))
+
+# Aggregate silhouette scores by cluster
+silhouette_df_hc <- data.frame(Cluster = hc_clusters, Silhouette = silhouette_scores_hc[, "sil_width"])
+cluster_silhouette_hc <- silhouette_df_hc %>%
+  group_by(Cluster) %>%
+  summarize(Avg_Silhouette = mean(Silhouette))
+
+# Print average silhouette score for each cluster
+print(cluster_silhouette_hc)
+
+```
+
+#Print the genes with the clusters
+
+```{r, warning=FALSE, echo = FALSE}
+
+# Add cluster assignments to your dataset
+gene_expression_data_with_clusters_hc <- cbind(gene_expression_data, cluster = cluster_labels_hc)
+
+# Create a data frame with gene names and their corresponding cluster assignments
+gene_cluster_df_hc <- data.frame(Gene = rownames(gene_expression_data), Cluster = cluster_labels_hc)
+
+# Display gene names for each cluster
+for (i in 1:optimal_kHC) {
+  #cat("Genes in Cluster", i, ":\n")
+  #print(gene_cluster_df_hc$Gene[gene_cluster_df_hc$Cluster == i])
+}
+
+#Cluster 1 : "202625_at"    "228708_at"    "204851_s_at"  "204949_at"    "229800_at"
+#Cluster 2:  "210302_s_at"  "238878_at"    "219197_s_at"  "219557_s_at"  "222900_at" 
+#Cluster 3: "227238_at"    "227241_at"    "219995_s_at"  "227856_at"    "227202_at"
+#Cluster 4: "1554012_at"   "221086_s_at"  "242193_at"    "233972_s_at"  "233327_at"
+
+```
+
+DBSCAN
+
+#DBSCAN Method 1 : Finding optimal epsilon using silhoutte coefficient
+
+Step 1: Define calculate_silhouette() to calculte silhoutte coeffiencet
+of each cluster
+
+```{r}
+
+# Function to calculate silhouette score for a given eps and MinPts
+calculate_silhouette <- function(data, eps, MinPts) {
+  dbscan_result <- dbscan(data, eps = eps, minPts = MinPts)
+  if (length(unique(dbscan_result$cluster)) == 1) {
+    return(NA)  # Skip if only noise points are detected
+  }
+  silhouette <- silhouette(dbscan_result$cluster, dist(data))
+  return(mean(silhouette))
+}
+
+```
+
+Step 2: Convert gene_expression_data to matrix
+
+```{r}
+
+gene_expression_matrix <- as.matrix(gene_expression_data)
+
+```
+
+Step 3: Parameter tuning of epsilon. Taking ranges of value between 0.1
+to 10. set the parameters minPts = dim +1 = 27 + 1 = 28 (used 10) mhere
+
+```{r, echo = FALSE}
+
+# Grid search for epsilon and MinPts
+eps_values <- seq(0.1, 10, by = 0.1)  # Example range for epsilon
+MinPts_values <- 10  # Example range for MinPts
+silhouette_scores <- matrix(NA, nrow = length(eps_values), ncol = length(MinPts_values))
+for (i in seq_along(eps_values)) {
+  for (j in seq_along(MinPts_values)) {
+    silhouette_scores[i, j] <- calculate_silhouette(gene_expression_matrix, eps_values[i], MinPts_values[j])
+  }
+}
+
+#print(silhouette_scores)
+# Find optimal parameters
+optimal_params <- which.max(silhouette_scores)
+#print(optimal_params)
+#print(optimal_params[1])
+#print(eps_values)
+#silhouette_scores[optimal_params]
+optimal_eps <- eps_values[optimal_params[1]]
+
+print(paste("Optimal epsilon based on silhoutte value is :", optimal_eps))
+
+```
+
+Step 4: DBSCAN algorithm
+
+```{r, warning=FALSE, echo = FALSE}
+
+# Perform DBSCAN clustering with optimal parameters
+dbscan_result <- dbscan(gene_expression_matrix, eps = optimal_eps, MinPts = 10)
+
+# Print number of clusters and cluster sizes
+num_clusters_dbscan <- length(unique(dbscan_result$cluster)) - 1  # Subtract 1 for noise points
+cluster_sizes_dbscan <- table(dbscan_result$cluster)
+print(paste("Optimal number of clusters:", num_clusters_dbscan))
+print("Cluster sizes:")
+print(cluster_sizes_dbscan)
+
+```
+
+Step 5: Final cluster result
+
+```{r, echo = FALSE}
+# Extract cluster labels
+cluster_labels_dbscan <- dbscan_result$cluster
+# Calculate silhouette score
+silhouette_avg_dbscan <- silhouette(cluster_labels_dbscan, dist(gene_expression_matrix))
+# Print the silhouette score
+print(paste("Average silhouette score:", mean(silhouette_avg_dbscan[, "sil_width"])))
+# Extract cluster labels
+cluster_labels_dbscan <- dbscan_result$cluster
+# Calculate silhouette score
+silhouette_avg_dbscan <- silhouette(cluster_labels_dbscan, dist(gene_expression_matrix))
+# Combine cluster labels and silhouette scores into a data frame
+silhouette_df_dbscan <- data.frame(Cluster = cluster_labels_dbscan, Silhouette = silhouette_avg_dbscan[, "sil_width"])
+# Calculate average silhouette score for each cluster
+cluster_silhouette_dbscan <- silhouette_df_dbscan %>%
+  group_by(Cluster) %>%
+  summarize(Avg_Silhouette = mean(Silhouette))
+# Print cluster sizes and average silhouette score for each cluster
+print(cluster_silhouette_dbscan)
+
+```
+
+MATPLOT OF EACH CLUSTERS FOR DBSCAN for EPSILON = 2.6
+
+```{r}
+
+# Assuming you have already performed k-means clustering and have cluster assignments stored in cluster_assignments_kM
+
+# Number of clusters
+num_clusters <- max(cluster_labels_dbscan)
+
+# Create a new directory to save the plots
+dir.create("cluster_plots")
+
+# Loop through each cluster
+for (i in 1:num_clusters) {
+  # Subset the data for the current cluster
+  cluster_data <- gene_expression_data[cluster_labels_dbscan == i, ]
+  
+  # Set smaller margins
+  #par(mar = c(6.5, 3, 1, 7))  # c(bottom, left, top, right)
+  
+  # Plot the data using matplot
+  matplot(t(cluster_data), type = "l", col = rainbow(100), xlab = " ", ylab = "Expression Level", xaxt = "n")
+  
+  # Customize x-axis labels
+  axis(1, at = seq_along(concentration_names), labels = concentration_names, las = 2)
+  
+  # Save the plot
+  plot_filename <- paste0("cluster_plots/cluster_", i, "_matplot.png")
+  dev.copy(png, plot_filename)
+  dev.off()
+}
+
+```
+
+
+Step 6: Visualization using PCA
+
+```{r, echo = FALSE}
+
+# Perform PCA
+pca_result <- prcomp(gene_expression_data, scale = TRUE)
+
+# Visualize PCA plot with cluster assignments
+fviz_pca_ind(pca_result, geom = "point", habillage = as.factor(dbscan_result$cluster), 
+             title = "PCA plot of DBSCAN Clustering Results")
+
+```
+
+#show the individual genes assigned to the clusters
+
+```{r, echo = FALSE}
+# Create a data frame with gene names and their corresponding cluster assignments
+gene_cluster_df_dbscan <- data.frame(Gene = rownames(gene_expression_data), Cluster = cluster_labels_dbscan)
+
+# Display gene names for each cluster
+for (i in 1:length(unique(cluster_labels_dbscan))) {
+  #cat("Genes in Cluster", i-1, ":\n")
+  #print(gene_cluster_df_dbscan$Gene[gene_cluster_df_dbscan$Cluster == i-1])
+}
+
+#Gene cluster 0 (outliers): "239205_s_at"  "210302_s_at"  "238878_at"    "219557_s_at"  "230493_at" 
+
+#Gene 1:"239206_at"    "205523_at"    "230204_at"    "227238_at"    "223044_at"   
+
+#Gene 2: 210303_at"    "1556378_a_at" "237435_at"    "237322_at"    "204424_s_at" 
+
+
+```
+
+#DBSCAN Method 2 : Finding optimal epsilon using KNN Plot Optimal
+epsilon value based on KNN plot
+
+Step 1: set the parameters minPts = dim +1 = 27 + 1 = 28 here and find
+the optimal epsilon value by analyzing the KNN distance plot.
+
+```{r, warning=FALSE}
+
+kNNdistplot(gene_expression_data, minPts = 10)
+abline(h=4, col = "red", lty = 2)
+# Noise seems to have start from 5.6
+
+#setting the parameters value
+epsion= 4#5.6
+minPts= 10
+
+```
+
+It is evident from the KNN plot that , the plot apperaed to have more
+steap gradiant when epsilon is 4. So optimal value of epsilon seems to
+be 7 from the KNN Plot.
+
+Step2: DBSCAN algorithm
+
+```{r, warning=FALSE}
+
+res_dbscan <- dbscan(gene_expression_data, eps = epsion, minPts = minPts)
+#$$$res_dbscan
+
+# Check the border points
+border_points <- which(res_dbscan$borderPoints)
+#$$$print("Number of border points:")
+#$$$print(border_points)
+cluster_labels_dbscan <- res_dbscan$cluster
+
+```
+
+MATPLOT OF EACH CLUSTERS FOR DBSCAN for EPSILON = 4
+
+```{r}
+
+# Assuming you have already performed k-means clustering and have cluster assignments stored in cluster_assignments_kM
+
+# Number of clusters
+num_clusters <- max(cluster_labels_dbscan)
+
+# Create a new directory to save the plots
+dir.create("cluster_plots")
+
+# Loop through each cluster
+for (i in 1:num_clusters) {
+  # Subset the data for the current cluster
+  cluster_data <- gene_expression_data[cluster_labels_dbscan == i, ]
+  
+  # Set smaller margins
+  #par(mar = c(6.5, 3, 1, 7))  # c(bottom, left, top, right)
+  
+  # Plot the data using matplot
+  matplot(t(cluster_data), type = "l", col = rainbow(100), xlab = " ", ylab = "Expression Level", xaxt = "n")
+  
+  # Customize x-axis labels
+  axis(1, at = seq_along(concentration_names), labels = concentration_names, las = 2)
+  
+  # Save the plot
+  plot_filename <- paste0("cluster_plots/cluster_", i, "_matplot.png")
+  dev.copy(png, plot_filename)
+  dev.off()
+}
+
+```
+
+
+
+So DBSCAN creates one cluster with 994 genes and 6 genes are declared as
+outliers
+
+Step3: Visualization of DBSCAN using PCA
+
+```{r, warning=FALSE, echo = FALSE}
+# Perform PCA
+pca_result <- prcomp(gene_expression_data, scale = TRUE)
+
+# Visualize PCA plot with cluster assignments
+#$$$fviz_pca_ind(pca_result, geom = "point", habillage = as.factor(res_dbscan$cluster), 
+#$$$             title = "PCA plot of DBSCAN Clustering Results")
+
+```
+
+-- Step 4: Performance evaluation of DBSCAN by Calculating Silhoutte
+coefficient for each cluster
+
+```{r, warning=FALSE}
+
+# Compute the distance matrix
+dist_matrix <- dist(gene_expression_data)
+
+# Calculate the silhouette score for DBSCAN clustering result
+cluster_labels_dbscan <- res_dbscan$cluster
+silhouette_score_db <- silhouette(cluster_labels_dbscan, dist_matrix)
+
+# Print the silhouette score
+summary(silhouette_score_db)
+
+# Calculate the total silhouette score
+total_silhouette_score <- mean(silhouette_score_db[, "sil_width"])
+print(paste("Total silhouette score:", total_silhouette_score))
+
+
+```
+
+```{r, echo = FALSE}
+
+# Create a data frame with gene names and their corresponding cluster assignments
+gene_cluster_df_dbscan <- data.frame(Gene = rownames(gene_expression_data), Cluster = cluster_labels_dbscan)
+
+# Display gene names for each cluster
+for (i in 1:length(unique(cluster_labels_dbscan))) {
+  #cat("Genes in Cluster", i-1, ":\n")
+  #print(gene_cluster_df_dbscan$Gene[gene_cluster_df_dbscan$Cluster == i-1])
+}
+
+```
+
+OPTICS
+
+1.  Step 1: Application of OPTICS using same minPts value. lower limit
+    of eps_cl is set as 4.6 which is adoped from the optimal epsilon
+    value for silhoutte score from previously
+
+```{r, warning=FALSE}
+# Compute the distance matrix
+dist_matrix <- dist(gene_expression_data)
+
+res_optics <- optics(dist_matrix, minPts = 10)
+#res_optics
+#plot(res_optics)
+res_optics <- extractDBSCAN(res_optics, eps_cl = 4)
+res_optics
+#hullplot(gene_expression_data, res_optics)
+
+pca <- prcomp(gene_expression_data)
+
+fviz_cluster(list(data = pca$x[,1:2], cluster = res_optics$cluster), geom = "point", stand = FALSE, palette = "jco", main = "PCA Plot with Clusters")
+
+
+
+```
+
+--Step 2: Performance alanysis of the OPTICS cluster by Calculation of
+Silhoutte coefficients
+
+```{r, warning=FALSE}
+
+# Compute the distance matrix
+dist_matrix <- dist(gene_expression_data)
+
+# Calculate the silhouette score for DBSCAN clustering result
+cluster_labels_optics <- res_optics$cluster
+silhouette_score_optics <- silhouette(cluster_labels_optics, dist_matrix)
+
+# Print the silhouette score
+#summary(silhouette_score_optics)
+
+cat("Silhouette coefficient for OPTICS clustering is:",mean(silhouette_score_optics[, "sil_width"]), "\n")
+
+```
+
+
+MATPLOT OF EACH CLUSTERS FOR OPTICS 
+
+```{r}
+
+# Assuming you have already performed k-means clustering and have cluster assignments stored in cluster_assignments_kM
+
+# Number of clusters
+num_clusters <- max(cluster_labels_optics)
+
+# Create a new directory to save the plots
+dir.create("cluster_plots")
+
+# Loop through each cluster
+for (i in 1:num_clusters) {
+  # Subset the data for the current cluster
+  cluster_data <- gene_expression_data[cluster_labels_optics == i, ]
+  
+  # Set smaller margins
+  #par(mar = c(6.5, 3, 1, 7))  # c(bottom, left, top, right)
+  
+  # Plot the data using matplot
+  matplot(t(cluster_data), type = "l", col = rainbow(100), xlab = " ", ylab = "Expression Level", xaxt = "n")
+  
+  # Customize x-axis labels
+  axis(1, at = seq_along(concentration_names), labels = concentration_names, las = 2)
+  
+  # Save the plot
+  plot_filename <- paste0("cluster_plots/cluster_", i, "_matplot.png")
+  dev.copy(png, plot_filename)
+  dev.off()
+}
+
+```
+
+
+# display the name of each genes and the clusters
+
+```{r}
+# Create a data frame with gene names and their corresponding cluster assignments
+gene_cluster_df_optics <- data.frame(Gene = rownames(gene_expression_data), Cluster = cluster_labels_optics)
+
+# Display gene names for each cluster
+for (i in 1:length(unique(cluster_labels_optics))) {
+  #cat("Genes in Cluster", i-1, ":\n")
+  #print(gene_cluster_df_optics$Gene[gene_cluster_df_optics$Cluster == i-1])
+}
+
+# Gene 0 (Outliers):"239205_s_at"  "210302_s_at"  "205523_at"    "230204_at"    "1554012_at"  
+#Gene 1: "243278_at"    "229724_at"    "226731_at"    "232327_at"    "203304_at"   
+#Gene 2 : "228387_at"    "231899_at"    "230198_at"    "202708_s_at"  "205710_at" 
+
+```
+
+Silhoutte score of each cluster
+
+```{r}
+
+# Calculate the silhouette score for each data point
+silhouette_scores_optics <- silhouette(cluster_labels_optics, dist_matrix)
+
+# Combine cluster assignments with silhouette scores
+silhouette_df_optics <- data.frame(Cluster = cluster_labels_optics, Silhouette = silhouette_scores_optics[, "sil_width"])
+
+# Calculate average silhouette score for each cluster
+cluster_silhouette_optics <- silhouette_df_optics %>%
+  group_by(Cluster) %>%
+  summarize(Avg_Silhouette = mean(Silhouette))
+
+# Print average silhouette score for each cluster
+print(cluster_silhouette_optics)
+
+```
+
+Several methods to extract a clustering from the order returned by
+OPTICS are implemented:
+
+extractDBSCAN() extracts a clustering from an OPTICS ordering that is
+similar to what DBSCAN would produce with an eps set to eps_cl (see
+Ankerst et al, 1999). The only difference to a DBSCAN clustering is that
+OPTICS is not able to assign some border points and reports them instead
+as noise. #we used extractDBSCAN() extractXi() extract clusters
+hierarchically specified in Ankerst et al (1999) based on the steepness
+of the reachability plot. One interpretation of the xi parameter is that
+it classifies clusters by change in relative cluster density. The used
+algorithm was originally contributed by the ELKI framework and is
+explained in Schubert et al (2018), but contains a set of fixes.
+
+ORICC
+
+```{r, warning=FALSE}
+
+col_ID <- c(1:1000)
+gene_expression_data <- cbind(gene_expression_data,col_ID)
+
+oric.clus<-ORICC1(gene_expression_data, data.col= 1:27, id.col = 28 , n.rep= c(6,rep(3,7)),plot.format = "jpg" , name.profile = "all", onefile = FALSE )
+
+oric_cluster<-oric.clus$cluster
+
+table(oric.clus$cluster)
+
+barplot(table(oric.clus$cluster), las = 1)
+
+```
+
+Plot of the clusters using different clustering algorithm using PCA 1
+and PCA 2
+
+```{r}
+
+# Extract the percentage of variance explained by each principal component
+variance_explained <- round(summary(pca)$importance[2, 1:2] * 100, 2)
+
+fviz_cluster(list(data = pca$x[,1:2], cluster = cluster_assignments_kM), geom = "point", stand = FALSE, palette = "jco", main = paste("PCA Plot with Clusters\n", "PC1:", variance_explained[1], "%, PC2:", variance_explained[2], "%"))
+
+fviz_cluster(list(data = pca$x[,1:2], cluster = hc_clusters), geom = "point", stand = FALSE, palette = "jco", main = paste("PCA Plot with Clusters\n", "PC1:", variance_explained[1], "%, PC2:", variance_explained[2], "%"))
+
+# Visualize PCA plot with cluster assignments
+#fviz_pca_ind(pca_result, geom = "point", habillage = as.factor(dbscan_result$cluster), 
+#             title = "PCA plot of DBSCAN Clustering algorithm")
+
+fviz_cluster(list(data = pca$x[,1:2], cluster = dbscan_result$cluster), geom = "point", stand = FALSE, palette = "jco", main = paste("PCA Plot with Clusters\n", "PC1:", variance_explained[1], "%, PC2:", variance_explained[2], "%"))
+
+fviz_cluster(list(data = pca$x[,1:2], cluster = res_optics$cluster), geom = "point", stand = FALSE, palette = "jco", main = paste("PCA Plot with Clusters\n", "PC1:", variance_explained[1], "%, PC2:", variance_explained[2], "%"))
+
+```
+
+Cluster size and silhoutte score of each clusters and average silhoutte
+score of the algorithm
+
+```{r, warning=FALSE}
+# Assuming nb_clust_result$Best.partition contains the cluster labels
+cluster_labels_kM <- Result_kM$Best.partition
+# Count the occurrences of each unique cluster label
+cluster_sizes_kM <- table(cluster_labels_kM)
+# Print the cluster sizes
+print(cluster_sizes_kM)
+# Extract Silhouette index values
+silhouette_value_kM <- Result_kM$Best.nc["Value_Index", "Silhouette"]
+cat("Silhouette coefficient for k-means clustering algorithm is:", silhouette_value_kM, "\n")
+
+# Assuming nb_clust_result$Best.partition contains the cluster labels
+cluster_labels_hc <- nb_clust_result_hc$Best.partition
+# Count the occurrences of each unique cluster label
+cluster_sizes_hc <- table(cluster_labels_hc)
+# Print the cluster sizes
+print(cluster_sizes_hc)
+silhouette_value_hc <- nb_clust_result_hc$Best.nc["Value_Index", "Silhouette"]
+# Assuming silhouette_value_kM is the variable storing the silhouette coefficient value
+cat("Silhouette coefficient for hirarchical clustering is:", silhouette_value_hc, "\n")
+
+# Perform DBSCAN clustering with optimal parameters
+dbscan_result <- dbscan(gene_expression_matrix, eps = optimal_eps, MinPts = 28)
+# Print number of clusters and cluster sizes
+num_clusters_dbscan <- length(unique(dbscan_result$cluster)) - 1  # Subtract 1 for noise points
+cluster_sizes_dbscan <- table(dbscan_result$cluster)
+#print(paste("Optimal number of clusters:", num_clusters_dbscan))
+print("DBSCAN Cluster sizes:")
+print(cluster_sizes_dbscan)
+cat("Silhouette coefficient for DBSCAN clustering is:", mean(silhouette_avg_dbscan[, "sil_width"]), "\n")
+
+cluster_sizes_optics <- table(res_optics$cluster)
+#print(paste("Optimal number of clusters:", num_clusters_dbscan))
+print("Optics Cluster sizes:")
+print(cluster_sizes_optics)
+cat("Silhouette coefficient for OPTICS clustering is:", mean(silhouette_score_optics[, "sil_width"]), "\n")
+
+```
+
+```{r}
+library(cluster)
+
+
+oric.clus<-ORICC1(gene_expression_data, data.col= 1:27, id.col = 28 , n.rep= c(6,rep(3,7)) , plot.format = "jpg" , name.profile = "all", onefile = FALSE )
+
+table(oric.clus$cluster)
+
+barplot(table(oric.clus$cluster), las = 1)
+
+original_genes <- 1:1000
+
+# Selected genes by ORICC
+selected_genes <- unique(oric.clus$top.id)
+
+# Genes eliminated by ORICC
+eliminated_genes <- setdiff(original_genes, selected_genes)
+
+# Print the eliminated genes
+print(eliminated_genes)
+
+# Define the indices of rows to be removed
+rows_to_remove <- eliminated_genes
+
+# Define the indices of rows to be removed
+#rows_to_remove <- c(278, 391, 551, 615, 622, 626, 756, 879, 918, 935, 938, 985)
+# Remove the specified rows from the gene_expression_data matrix
+gene_expression_data_filtered <- gene_expression_data[-rows_to_remove, ]
+# Assuming oric.clus$cluster contains the cluster assignments
+# and oric.clus$cluster is a vector of cluster assignments for each data point
+
+# Compute silhouette
+sil <- silhouette(oric.clus$cluster, dist(gene_expression_data_filtered))
+
+# Mean silhouette width
+mean_sil_width <- mean(sil[, "sil_width"])
+
+mean_sil_width
+library(factoextra)
+
+# Assuming oric.clus$cluster contains the cluster assignments
+# and oric.clus$cluster is a vector of cluster assignments for each data point
+pca <- prcomp(gene_expression_data_filtered)
+# Visualize clusters
+#fviz_cluster(list(data = gene_expression_data_filtered, cluster = oric.clus$cluster))
+
+# Visualize clusters using PCA with automatic coloring
+fviz_cluster(list(data = pca$x[,1:2], cluster = oric.clus$cluster), geom = "point", stand = FALSE, main = "PCA Plot with Clusters for ORICC", palette = "default")
+
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to
+prevent printing of the R code that generated the plot.
